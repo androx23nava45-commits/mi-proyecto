@@ -206,16 +206,55 @@ export default function Home() {
                     </div>
                   )}
 
-                  {respuesta && (
-                    <button onClick={generarEjercicio} style={{
-                      background: '#1A6FE8', color: '#fff', border: 'none',
-                      borderRadius: '8px', padding: '10px 20px',
-                      fontSize: '13px', fontWeight: 500, marginTop: '16px',
-                      display: 'flex', alignItems: 'center', gap: '6px'
-                    }}>
-                      Nueva pregunta
-                    </button>
-                  )}
+                 {respuesta && (
+  <div style={{ marginTop: '16px', borderTop: '0.5px solid #e5e5e5', paddingTop: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+      <div>
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>
+          Instrucción del REBT
+        </label>
+        <select
+          value={instruccion}
+          onChange={e => setInstruccion(e.target.value)}
+          style={{
+            width: '100%', padding: '8px 12px', borderRadius: '8px',
+            border: '0.5px solid #e5e5e5', fontSize: '13px',
+            background: '#fff', color: '#1a1a1a'
+          }}
+        >
+          {instrucciones.map(i => (
+            <option key={i} value={i}>{i}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>
+          Dificultad
+        </label>
+        <select
+          value={dificultad}
+          onChange={e => setDificultad(e.target.value)}
+          style={{
+            width: '100%', padding: '8px 12px', borderRadius: '8px',
+            border: '0.5px solid #e5e5e5', fontSize: '13px',
+            background: '#fff', color: '#1a1a1a'
+          }}
+        >
+          <option value="basico">Básico</option>
+          <option value="intermedio">Intermedio</option>
+          <option value="avanzado">Avanzado</option>
+        </select>
+      </div>
+    </div>
+    <button onClick={generarEjercicio} style={{
+      background: '#1A6FE8', color: '#fff', border: 'none',
+      borderRadius: '8px', padding: '10px 20px',
+      fontSize: '13px', fontWeight: 500, width: '100%'
+    }}>
+      Nueva pregunta
+    </button>
+  </div>
+)}
                 </>
               )}
             </div>
