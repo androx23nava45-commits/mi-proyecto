@@ -18,7 +18,33 @@ interface ProgresoItem {
   aciertos: number
 }
 
+const INCENTIVOS_RACHA: Record<number, string> = {
+  3: '🔥 ¡Racha de 3! Los mejores electricistas no paran aquí...',
+  5: '⚡ ¡5 seguidas! Estás en modo profesional.',
+  10: '🏆 ¡10 correctas! El REBT no tiene secretos para ti.',
+}
+
+const INCENTIVOS_FALLO = [
+  '💪 Los errores son parte del aprendizaje. El REBT tiene truco, vamos otra vez.',
+  '😅 Casi. Repasa la explicación y lo clavaras la próxima.',
+  '🔄 Un buen electricista repasa hasta que lo domina. Tú puedes.',
+]
+
+const INCENTIVOS_PORCENTAJE: { min: number; max: number; msg: string }[] = [
+  { min: 80, max: 100, msg: '🏆 Nivel experto detectado. ¿Te atreves con dificultad avanzada?' },
+  { min: 60, max: 79, msg: '⚡ Buen nivel. Sigue así y serás un referente del REBT.' },
+  { min: 40, max: 59, msg: '📚 Vas por buen camino. Un poco más de práctica y lo tienes.' },
+  { min: 0, max: 39, msg: '😤 Hoy no es tu día, pero mañana repasamos juntos.' },
+]
+
+const MENSAJES_INICIO = [
+  '⚡ Un electricista profesional conoce el REBT de memoria. ¿Cuánto sabes tú?',
+  '🎯 Cada pregunta te acerca más al carnet profesional.',
+  '🔌 El conocimiento es la mejor herramienta. ¡Empieza!',
+]
+
 export default function Home() {
+  const [categoria, setCategoria] = useState<string>('test')
   const [ejercicio, setEjercicio] = useState<Ejercicio | null>(null)
   const [cargando, setCargando] = useState<boolean>(false)
   const [respuesta, setRespuesta] = useState<string | null>(null)
@@ -27,6 +53,8 @@ export default function Home() {
   const [dificultad, setDificultad] = useState<string>('basico')
   const [stats, setStats] = useState<{ total: number; aciertos: number }>({ total: 0, aciertos: 0 })
   const [progreso, setProgreso] = useState<Record<string, ProgresoItem>>({})
+  const [racha, setRacha] = useState<number>(0)
+  const [incentivo, setIncentivo] = useState<string>(MENSAJES_INICIO[Math.floor(Math.random() * MENSAJES_INICIO.length)])
 
   const instrucciones = [
     'ITC-BT-01', 'ITC-BT-02', 'ITC-BT-03', 'ITC-BT-04', 'ITC-BT-05',
@@ -39,6 +67,7 @@ export default function Home() {
     setCargando(true)
     setRespuesta(null)
     setResultado(null)
+    setEjercicio(null)
     try {
       const res = await fetch('/api/ejercicios/generar', {
         method: 'POST',
@@ -58,10 +87,16 @@ export default function Home() {
     setRespuesta(opcion)
     const correcto = opcion === ejercicio.respuesta_correcta
     setResultado(correcto)
-    setStats(prev => ({
-      total: prev.total + 1,
-      aciertos: correcto ? prev.aciertos + 1 : prev.aciertos
-    }))
+
+    const nuevaRacha = correcto ? racha + 1 : 0
+    setRacha(nuevaRacha)
+
+    const nuevasStats = {
+      total: stats.total + 1,
+      aciertos: correcto ? stats.aciertos + 1 : stats.aciertos
+    }
+    setStats(nuevasStats)
+
     setProgreso(prev => {
       const actual = prev[instruccion] || { total: 0, aciertos: 0 }
       return {
@@ -72,6 +107,16 @@ export default function Home() {
         }
       }
     })
+
+    if (correcto && INCENTIVOS_RACHA[nuevaRacha]) {
+      setIncentivo(INCENTIVOS_RACHA[nuevaRacha])
+    } else if (!correcto) {
+      setIncentivo(INCENTIVOS_FALLO[Math.floor(Math.random() * INCENTIVOS_FALLO.length)])
+    } else if (nuevasStats.total >= 3) {
+      const pct = Math.round((nuevasStats.aciertos / nuevasStats.total) * 100)
+      const msg = INCENTIVOS_PORCENTAJE.find(i => pct >= i.min && pct <= i.max)
+      if (msg) setIncentivo(msg.msg)
+    }
   }
 
   const letras = ['A', 'B', 'C', 'D']
@@ -79,28 +124,14 @@ export default function Home() {
   const Selectores = () => (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
       <div>
-        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>
-          Instrucción del REBT
-        </label>
-        <select
-          value={instruccion}
-          onChange={e => setInstruccion(e.target.value)}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}
-        >
-          {instrucciones.map(i => (
-            <option key={i} value={i}>{i}</option>
-          ))}
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>Instrucción del REBT</label>
+        <select value={instruccion} onChange={e => setInstruccion(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}>
+          {instrucciones.map(i => <option key={i} value={i}>{i}</option>)}
         </select>
       </div>
       <div>
-        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>
-          Dificultad
-        </label>
-        <select
-          value={dificultad}
-          onChange={e => setDificultad(e.target.value)}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}
-        >
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>Dificultad</label>
+        <select value={dificultad} onChange={e => setDificultad(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}>
           <option value="basico">Básico</option>
           <option value="intermedio">Intermedio</option>
           <option value="avanzado">Avanzado</option>
@@ -109,25 +140,39 @@ export default function Home() {
     </div>
   )
 
+  const categorias = [
+    { id: 'test', label: 'Test REBT', icono: '📋' },
+    { id: 'matematicas', label: 'Matemáticas', icono: '➗' },
+    { id: 'simbologia', label: 'Simbología', icono: '⚡' },
+  ]
+
   return (
     <>
       <Navbar />
       <main style={{ padding: '32px 24px', maxWidth: '960px', margin: '0 auto' }}>
 
-        <div style={{ marginBottom: '28px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 500, color: '#1a1a1a', marginBottom: '4px' }}>
-            Tests del REBT
-          </h1>
-          <p style={{ fontSize: '14px', color: '#888' }}>
-            Practica por instrucción o genera un test global para evaluar tu nivel
-          </p>
+        <div style={{ marginBottom: '20px' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 500, color: '#1a1a1a', marginBottom: '4px' }}>Ejercicios</h1>
+          <p style={{ fontSize: '14px', color: '#888' }}>Practica y mejora tu nivel como electricista profesional</p>
+        </div>
+
+        <div style={{ background: '#E6F1FB', border: '0.5px solid #B5D4F4', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#185FA5', fontWeight: 500 }}>
+          {incentivo}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+          {categorias.map(c => (
+            <button key={c.id} onClick={() => { setCategoria(c.id); setEjercicio(null); setRespuesta(null); setResultado(null) }} style={{ padding: '8px 18px', borderRadius: '8px', border: categoria === c.id ? '1.5px solid #1A6FE8' : '0.5px solid #e5e5e5', background: categoria === c.id ? '#E6F1FB' : '#fff', color: categoria === c.id ? '#185FA5' : '#888', fontSize: '13px', fontWeight: categoria === c.id ? 500 : 400, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {c.icono} {c.label}
+            </button>
+          ))}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '28px' }}>
           {[
             { label: 'Preguntas respondidas', value: stats.total.toString(), sub: 'esta sesión' },
             { label: 'Aciertos', value: stats.total > 0 ? `${Math.round((stats.aciertos / stats.total) * 100)}%` : '—', sub: 'promedio' },
-            { label: 'Instrucción activa', value: instruccion, sub: 'REBT' },
+            { label: 'Racha actual', value: racha > 0 ? `${racha} 🔥` : '—', sub: 'correctas seguidas' },
           ].map((s, i) => (
             <div key={i} style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: '8px', padding: '16px' }}>
               <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '6px' }}>{s.label}</div>
@@ -138,14 +183,31 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: '20px' }}>
-
           <div>
             <div style={{ fontSize: '13px', fontWeight: 500, color: '#aaa', letterSpacing: '.04em', textTransform: 'uppercase', marginBottom: '12px' }}>
-              Pregunta activa
+              {categoria === 'test' ? 'Test REBT' : categoria === 'matematicas' ? 'Matemáticas eléctricas' : 'Simbología técnica'}
             </div>
             <div style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: '12px', padding: '20px' }}>
 
-              {!ejercicio && !cargando && (
+              {categoria === 'matematicas' && !ejercicio && !cargando && (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>➗</div>
+                  <p style={{ fontSize: '14px', fontWeight: 500, color: '#1a1a1a', marginBottom: '6px' }}>Matemáticas eléctricas</p>
+                  <p style={{ fontSize: '13px', color: '#888', marginBottom: '20px' }}>Próximamente: Ohm, Joule, caída de tensión, RLC y más</p>
+                  <span style={{ background: '#E6F1FB', color: '#185FA5', fontSize: '12px', padding: '4px 12px', borderRadius: '6px' }}>En desarrollo</span>
+                </div>
+              )}
+
+              {categoria === 'simbologia' && !ejercicio && !cargando && (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚡</div>
+                  <p style={{ fontSize: '14px', fontWeight: 500, color: '#1a1a1a', marginBottom: '6px' }}>Simbología técnica</p>
+                  <p style={{ fontSize: '13px', color: '#888', marginBottom: '20px' }}>Próximamente: identifica símbolos, interpreta esquemas reales</p>
+                  <span style={{ background: '#FAEEDA', color: '#633806', fontSize: '12px', padding: '4px 12px', borderRadius: '6px' }}>En desarrollo</span>
+                </div>
+              )}
+
+              {categoria === 'test' && !ejercicio && !cargando && (
                 <div style={{ padding: '8px 0' }}>
                   <Selectores />
                   <button onClick={generarEjercicio} style={{ background: '#1A6FE8', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 24px', fontSize: '13px', fontWeight: 500, width: '100%' }}>
@@ -163,12 +225,8 @@ export default function Home() {
               {ejercicio && !cargando && (
                 <>
                   <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#E6F1FB', color: '#185FA5' }}>
-                      {ejercicio.instruccion_rebt}
-                    </span>
-                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#f5f5f5', color: '#888' }}>
-                      {ejercicio.dificultad}
-                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#E6F1FB', color: '#185FA5' }}>{ejercicio.instruccion_rebt}</span>
+                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#f5f5f5', color: '#888' }}>{ejercicio.dificultad}</span>
                   </div>
 
                   <p style={{ fontSize: '15px', fontWeight: 500, color: '#1a1a1a', lineHeight: 1.5, marginBottom: '20px' }}>
@@ -181,11 +239,8 @@ export default function Home() {
                       let bg = '#fff'
                       let color = '#1a1a1a'
                       if (respuesta) {
-                        if (opcion === ejercicio.respuesta_correcta) {
-                          borderColor = '#1D9E75'; bg = '#E1F5EE'; color = '#085041'
-                        } else if (opcion === respuesta) {
-                          borderColor = '#E24B4A'; bg = '#FCEBEB'; color = '#501313'
-                        }
+                        if (opcion === ejercicio.respuesta_correcta) { borderColor = '#1D9E75'; bg = '#E1F5EE'; color = '#085041' }
+                        else if (opcion === respuesta) { borderColor = '#E24B4A'; bg = '#FCEBEB'; color = '#501313' }
                       }
                       return (
                         <button key={i} onClick={() => !respuesta && responder(opcion)} style={{ border: `1px solid ${borderColor}`, borderRadius: '8px', padding: '12px 16px', background: bg, color, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left', transition: 'all .15s', width: '100%' }}>
@@ -236,7 +291,6 @@ export default function Home() {
               <div style={{ height: '6px', background: '#f5f5f5', borderRadius: '3px', marginBottom: '16px' }}>
                 <div style={{ height: '100%', background: '#1A6FE8', borderRadius: '3px', width: stats.total > 0 ? `${Math.round((stats.aciertos / stats.total) * 100)}%` : '0%', transition: 'width 0.4s ease' }} />
               </div>
-
               {Object.keys(progreso).length === 0 ? (
                 <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', padding: '12px 0' }}>
                   Responde preguntas para ver tu progreso
@@ -261,7 +315,6 @@ export default function Home() {
               )}
             </div>
           </div>
-
         </div>
       </main>
     </>
