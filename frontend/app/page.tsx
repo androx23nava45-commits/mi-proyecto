@@ -1,10 +1,11 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar'
 
 interface Ejercicio {
   id: number
   tipo: string
+  subtipo?: string
   pregunta: string
   opciones: string[]
   respuesta_correcta: string
@@ -25,8 +26,8 @@ const INCENTIVOS_RACHA: Record<number, string> = {
 }
 
 const INCENTIVOS_FALLO = [
-  '💪 Los errores son parte del aprendizaje. El REBT tiene truco, vamos otra vez.',
-  '😅 Casi. Repasa la explicación y lo clavaras la próxima.',
+  '💪 Los errores son parte del aprendizaje. Vamos otra vez.',
+  '😅 Casi. Repasa la explicación y lo clavarás la próxima.',
   '🔄 Un buen electricista repasa hasta que lo domina. Tú puedes.',
 ]
 
@@ -37,10 +38,13 @@ const INCENTIVOS_PORCENTAJE: { min: number; max: number; msg: string }[] = [
   { min: 0, max: 39, msg: '😤 Hoy no es tu día, pero mañana repasamos juntos.' },
 ]
 
-const MENSAJES_INICIO = [
-  '⚡ Un electricista profesional conoce el REBT de memoria. ¿Cuánto sabes tú?',
-  '🎯 Cada pregunta te acerca más al carnet profesional.',
-  '🔌 El conocimiento es la mejor herramienta. ¡Empieza!',
+const TIPOS_MATEMATICAS = [
+  { id: 'ohm', label: 'Ley de Ohm' },
+  { id: 'joule', label: 'Efecto Joule' },
+  { id: 'potencia', label: 'Triángulo de potencias' },
+  { id: 'caida', label: 'Caída de tensión' },
+  { id: 'seccion', label: 'Sección de cable' },
+  { id: 'rlc', label: 'Circuitos RLC' },
 ]
 
 export default function Home() {
@@ -51,10 +55,17 @@ export default function Home() {
   const [resultado, setResultado] = useState<boolean | null>(null)
   const [instruccion, setInstruccion] = useState<string>('ITC-BT-01')
   const [dificultad, setDificultad] = useState<string>('basico')
+  const [tipoMat, setTipoMat] = useState<string>('ohm')
   const [stats, setStats] = useState<{ total: number; aciertos: number }>({ total: 0, aciertos: 0 })
   const [progreso, setProgreso] = useState<Record<string, ProgresoItem>>({})
   const [racha, setRacha] = useState<number>(0)
-  const [incentivo, setIncentivo] = useState<string>(MENSAJES_INICIO[Math.floor(Math.random() * MENSAJES_INICIO.length)])
+  const [incentivo, setIncentivo] = useState<string>('')
+  const [montado, setMontado] = useState<boolean>(false)
+
+  useEffect(() => {
+    setMontado(true)
+    setIncentivo('⚡ Un electricista profesional conoce el REBT de memoria. ¿Cuánto sabes tú?')
+  }, [])
 
   const instrucciones = [
     'ITC-BT-01', 'ITC-BT-02', 'ITC-BT-03', 'ITC-BT-04', 'ITC-BT-05',
@@ -69,10 +80,18 @@ export default function Home() {
     setResultado(null)
     setEjercicio(null)
     try {
-      const res = await fetch('/api/ejercicios/generar', {
+      let url = '/api/ejercicios/generar'
+      let body: Record<string, string> = { instruccion_rebt: instruccion, dificultad }
+
+      if (categoria === 'matematicas') {
+        url = '/api/ejercicios/generar-matematicas'
+        body = { tipo: tipoMat, dificultad }
+      }
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruccion_rebt: instruccion, dificultad })
+        body: JSON.stringify(body)
       })
       const data = await res.json()
       setEjercicio(data)
@@ -97,11 +116,12 @@ export default function Home() {
     }
     setStats(nuevasStats)
 
+    const clave = categoria === 'matematicas' ? `MAT-${tipoMat}` : instruccion
     setProgreso(prev => {
-      const actual = prev[instruccion] || { total: 0, aciertos: 0 }
+      const actual = prev[clave] || { total: 0, aciertos: 0 }
       return {
         ...prev,
-        [instruccion]: {
+        [clave]: {
           total: actual.total + 1,
           aciertos: correcto ? actual.aciertos + 1 : actual.aciertos
         }
@@ -111,7 +131,8 @@ export default function Home() {
     if (correcto && INCENTIVOS_RACHA[nuevaRacha]) {
       setIncentivo(INCENTIVOS_RACHA[nuevaRacha])
     } else if (!correcto) {
-      setIncentivo(INCENTIVOS_FALLO[Math.floor(Math.random() * INCENTIVOS_FALLO.length)])
+      const idx = nuevasStats.total % INCENTIVOS_FALLO.length
+      setIncentivo(INCENTIVOS_FALLO[idx])
     } else if (nuevasStats.total >= 3) {
       const pct = Math.round((nuevasStats.aciertos / nuevasStats.total) * 100)
       const msg = INCENTIVOS_PORCENTAJE.find(i => pct >= i.min && pct <= i.max)
@@ -121,12 +142,31 @@ export default function Home() {
 
   const letras = ['A', 'B', 'C', 'D']
 
-  const Selectores = () => (
+  const SelectoresTest = () => (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
       <div>
         <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>Instrucción del REBT</label>
         <select value={instruccion} onChange={e => setInstruccion(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}>
           {instrucciones.map(i => <option key={i} value={i}>{i}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>Dificultad</label>
+        <select value={dificultad} onChange={e => setDificultad(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}>
+          <option value="basico">Básico</option>
+          <option value="intermedio">Intermedio</option>
+          <option value="avanzado">Avanzado</option>
+        </select>
+      </div>
+    </div>
+  )
+
+  const SelectoresMatematicas = () => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+      <div>
+        <label style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '6px' }}>Tipo de cálculo</label>
+        <select value={tipoMat} onChange={e => setTipoMat(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '0.5px solid #e5e5e5', fontSize: '13px', background: '#fff', color: '#1a1a1a' }}>
+          {TIPOS_MATEMATICAS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
         </select>
       </div>
       <div>
@@ -156,9 +196,11 @@ export default function Home() {
           <p style={{ fontSize: '14px', color: '#888' }}>Practica y mejora tu nivel como electricista profesional</p>
         </div>
 
-        <div style={{ background: '#E6F1FB', border: '0.5px solid #B5D4F4', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#185FA5', fontWeight: 500 }}>
-          {incentivo}
-        </div>
+        {montado && (
+          <div style={{ background: '#E6F1FB', border: '0.5px solid #B5D4F4', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#185FA5', fontWeight: 500 }}>
+            {incentivo}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
           {categorias.map(c => (
@@ -189,15 +231,6 @@ export default function Home() {
             </div>
             <div style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: '12px', padding: '20px' }}>
 
-              {categoria === 'matematicas' && !ejercicio && !cargando && (
-                <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>➗</div>
-                  <p style={{ fontSize: '14px', fontWeight: 500, color: '#1a1a1a', marginBottom: '6px' }}>Matemáticas eléctricas</p>
-                  <p style={{ fontSize: '13px', color: '#888', marginBottom: '20px' }}>Próximamente: Ohm, Joule, caída de tensión, RLC y más</p>
-                  <span style={{ background: '#E6F1FB', color: '#185FA5', fontSize: '12px', padding: '4px 12px', borderRadius: '6px' }}>En desarrollo</span>
-                </div>
-              )}
-
               {categoria === 'simbologia' && !ejercicio && !cargando && (
                 <div style={{ textAlign: 'center', padding: '32px 0' }}>
                   <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚡</div>
@@ -207,26 +240,37 @@ export default function Home() {
                 </div>
               )}
 
-              {categoria === 'test' && !ejercicio && !cargando && (
+              {(categoria === 'test' || categoria === 'matematicas') && !ejercicio && !cargando && (
                 <div style={{ padding: '8px 0' }}>
-                  <Selectores />
+                  {categoria === 'test' ? <SelectoresTest /> : <SelectoresMatematicas />}
                   <button onClick={generarEjercicio} style={{ background: '#1A6FE8', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 24px', fontSize: '13px', fontWeight: 500, width: '100%' }}>
-                    Generar pregunta
+                    Generar ejercicio
                   </button>
                 </div>
               )}
 
               {cargando && (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: '#aaa', fontSize: '14px' }}>
-                  Generando pregunta...
+                  Generando ejercicio...
                 </div>
               )}
 
               {ejercicio && !cargando && (
                 <>
                   <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#E6F1FB', color: '#185FA5' }}>{ejercicio.instruccion_rebt}</span>
-                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#f5f5f5', color: '#888' }}>{ejercicio.dificultad}</span>
+                    {ejercicio.subtipo && (
+                      <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#E1F5EE', color: '#085041' }}>
+                        {TIPOS_MATEMATICAS.find(t => t.id === ejercicio.subtipo)?.label || ejercicio.subtipo}
+                      </span>
+                    )}
+                    {ejercicio.instruccion_rebt && ejercicio.instruccion_rebt !== 'N/A' && (
+                      <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#E6F1FB', color: '#185FA5' }}>
+                        {ejercicio.instruccion_rebt}
+                      </span>
+                    )}
+                    <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 8px', borderRadius: '4px', background: '#f5f5f5', color: '#888' }}>
+                      {ejercicio.dificultad}
+                    </span>
                   </div>
 
                   <p style={{ fontSize: '15px', fontWeight: 500, color: '#1a1a1a', lineHeight: 1.5, marginBottom: '20px' }}>
@@ -266,9 +310,9 @@ export default function Home() {
 
                   {respuesta && (
                     <div style={{ marginTop: '16px', borderTop: '0.5px solid #e5e5e5', paddingTop: '16px' }}>
-                      <Selectores />
+                      {categoria === 'test' ? <SelectoresTest /> : <SelectoresMatematicas />}
                       <button onClick={generarEjercicio} style={{ background: '#1A6FE8', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '13px', fontWeight: 500, width: '100%' }}>
-                        Nueva pregunta
+                        Siguiente ejercicio
                       </button>
                     </div>
                   )}
@@ -293,16 +337,16 @@ export default function Home() {
               </div>
               {Object.keys(progreso).length === 0 ? (
                 <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', padding: '12px 0' }}>
-                  Responde preguntas para ver tu progreso
+                  Responde ejercicios para ver tu progreso
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {Object.entries(progreso).map(([itc, data]) => {
+                  {Object.entries(progreso).map(([clave, data]) => {
                     const pct = Math.round((data.aciertos / data.total) * 100)
                     return (
-                      <div key={itc} style={{ borderBottom: '0.5px solid #f0f0f0', paddingBottom: '8px' }}>
+                      <div key={clave} style={{ borderBottom: '0.5px solid #f0f0f0', paddingBottom: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '12px', color: '#1a1a1a' }}>{itc}</span>
+                          <span style={{ fontSize: '12px', color: '#1a1a1a' }}>{clave}</span>
                           <span style={{ fontSize: '12px', fontWeight: 500, color: '#1A6FE8' }}>{pct}%</span>
                         </div>
                         <div style={{ height: '4px', background: '#f5f5f5', borderRadius: '2px' }}>
