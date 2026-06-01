@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar'
+import { supabase } from '../lib/supabase'
 
 interface Ejercicio {
   id?: number
@@ -130,15 +131,13 @@ export default function Home() {
     setIncentivo('⚡ Un electricista profesional conoce el REBT de memoria. ¿Cuánto sabes tú?')
   }, [])
 
-  const pctTest = progreso['test-global']
-    ? Math.round((progreso['test-global'].aciertos / progreso['test-global'].total) * 100)
-    : (() => {
-        const claves = Object.keys(progreso).filter(k => k.startsWith('ITC'))
-        if (claves.length === 0) return 0
-        const total = claves.reduce((acc, k) => acc + progreso[k].total, 0)
-        const aciertos = claves.reduce((acc, k) => acc + progreso[k].aciertos, 0)
-        return total > 0 ? Math.round((aciertos / total) * 100) : 0
-      })()
+  const pctTest = (() => {
+    const claves = Object.keys(progreso).filter(k => k.startsWith('ITC'))
+    if (claves.length === 0) return 0
+    const total = claves.reduce((acc, k) => acc + progreso[k].total, 0)
+    const aciertos = claves.reduce((acc, k) => acc + progreso[k].aciertos, 0)
+    return total > 0 ? Math.round((aciertos / total) * 100) : 0
+  })()
 
   const pctMat = (() => {
     const claves = Object.keys(progreso).filter(k => k.startsWith('MAT'))
@@ -165,8 +164,7 @@ export default function Home() {
       if (r.label === 'Matemáticas') return r.pct === 0 ? 'Practica matemáticas eléctricas — aún no has respondido ninguna' : `Mejora tu media en Matemáticas al ${UMBRAL_DESBLOQUEO}% — llevas ${r.pct}%`
       if (r.label === 'Preguntas respondidas') return `Responde ${30 - totalRespondidas} preguntas más de cualquier categoría`
       return ''
-    })
-    .filter(Boolean)
+    }).filter(Boolean)
 
   const generarEjercicio = async () => {
     setCargando(true)
@@ -179,7 +177,6 @@ export default function Home() {
       const body = categoria === 'matematicas'
         ? { tipo: tipoMat, dificultad }
         : { instruccion_rebt: instruccion, dificultad }
-
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -197,6 +194,56 @@ export default function Home() {
       console.error(err)
     }
     setCargando(false)
+  }
+
+  const guardarProgresoDB = async (clave: string, cat: string, correcto: boolean) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data: existente } = await supabase
+      .from('progreso_usuario')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('clave', clave)
+      .maybeSingle()
+    if (existente) {
+      await supabase.from('progreso_usuario').update({
+        total: existente.total + 1,
+        aciertos: correcto ? existente.aciertos + 1 : existente.aciertos
+      }).eq('id', existente.id)
+    } else {
+      await supabase.from('progreso_usuario').insert([{
+        user_id: user.id,
+        categoria: cat,
+        clave,
+        total: 1,
+        aciertos: correcto ? 1 : 0
+      }])
+    }
+  }
+
+  const responder = (opcion: string) => {
+    if (!ejercicio) return
+    setRespuesta(opcion)
+    const correcto = opcion === ejercicio.respuesta_correcta
+    setResultado(correcto)
+    const nuevaRacha = correcto ? racha + 1 : 0
+    setRacha(nuevaRacha)
+    const nuevasStats = { total: stats.total + 1, aciertos: correcto ? stats.aciertos + 1 : stats.aciertos }
+    setStats(nuevasStats)
+    const clave = categoria === 'matematicas' ? `MAT-${tipoMat}` : instruccion
+    const cat = categoria === 'matematicas' ? 'matematicas' : 'test'
+    setProgreso(prev => {
+      const actual = prev[clave] || { total: 0, aciertos: 0 }
+      return { ...prev, [clave]: { total: actual.total + 1, aciertos: correcto ? actual.aciertos + 1 : actual.aciertos } }
+    })
+    guardarProgresoDB(clave, cat, correcto)
+    if (correcto && INCENTIVOS_RACHA[nuevaRacha]) setIncentivo(INCENTIVOS_RACHA[nuevaRacha])
+    else if (!correcto) setIncentivo(INCENTIVOS_FALLO[nuevasStats.total % INCENTIVOS_FALLO.length])
+    else if (nuevasStats.total >= 3) {
+      const pct = Math.round((nuevasStats.aciertos / nuevasStats.total) * 100)
+      const msg = INCENTIVOS_PORCENTAJE.find(i => pct >= i.min && pct <= i.max)
+      if (msg) setIncentivo(msg.msg)
+    }
   }
 
   const iniciarExamen = async () => {
@@ -235,35 +282,8 @@ export default function Home() {
   }
 
   const siguientePreguntaExamen = () => {
-    if (examenIndex + 1 >= examenPreguntas.length) {
-      setExamenTerminado(true)
-    } else {
-      setExamenIndex(prev => prev + 1)
-      setExamenRespuesta(null)
-    }
-  }
-
-  const responder = (opcion: string) => {
-    if (!ejercicio) return
-    setRespuesta(opcion)
-    const correcto = opcion === ejercicio.respuesta_correcta
-    setResultado(correcto)
-    const nuevaRacha = correcto ? racha + 1 : 0
-    setRacha(nuevaRacha)
-    const nuevasStats = { total: stats.total + 1, aciertos: correcto ? stats.aciertos + 1 : stats.aciertos }
-    setStats(nuevasStats)
-    const clave = categoria === 'matematicas' ? `MAT-${tipoMat}` : instruccion
-    setProgreso(prev => {
-      const actual = prev[clave] || { total: 0, aciertos: 0 }
-      return { ...prev, [clave]: { total: actual.total + 1, aciertos: correcto ? actual.aciertos + 1 : actual.aciertos } }
-    })
-    if (correcto && INCENTIVOS_RACHA[nuevaRacha]) setIncentivo(INCENTIVOS_RACHA[nuevaRacha])
-    else if (!correcto) setIncentivo(INCENTIVOS_FALLO[nuevasStats.total % INCENTIVOS_FALLO.length])
-    else if (nuevasStats.total >= 3) {
-      const pct = Math.round((nuevasStats.aciertos / nuevasStats.total) * 100)
-      const msg = INCENTIVOS_PORCENTAJE.find(i => pct >= i.min && pct <= i.max)
-      if (msg) setIncentivo(msg.msg)
-    }
+    if (examenIndex + 1 >= examenPreguntas.length) setExamenTerminado(true)
+    else { setExamenIndex(prev => prev + 1); setExamenRespuesta(null) }
   }
 
   const letras = ['A', 'B', 'C', 'D']
@@ -273,13 +293,7 @@ export default function Home() {
       <label style={{ fontSize: '12px', color: '#999', display: 'block', marginBottom: '8px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Dificultad</label>
       <div style={{ display: 'flex', gap: '8px' }}>
         {DIFICULTADES.map(d => (
-          <button key={d.id} onClick={() => onChange(d.id)} style={{
-            flex: 1, padding: '10px 8px', borderRadius: '10px',
-            border: `1.5px solid ${value === d.id ? d.border : '#EAEAEA'}`,
-            background: value === d.id ? d.bg : '#fff',
-            cursor: 'pointer', transition: 'all .15s',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px'
-          }}>
+          <button key={d.id} onClick={() => onChange(d.id)} style={{ flex: 1, padding: '10px 8px', borderRadius: '10px', border: `1.5px solid ${value === d.id ? d.border : '#EAEAEA'}`, background: value === d.id ? d.bg : '#fff', cursor: 'pointer', transition: 'all .15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
             <span style={{ fontSize: '16px' }}>{d.emoji}</span>
             <span style={{ fontSize: '12px', fontWeight: 600, color: value === d.id ? d.color : '#666' }}>{d.label}</span>
             <span style={{ fontSize: '10px', color: '#aaa', textAlign: 'center', lineHeight: 1.3 }}>{d.desc}</span>
@@ -301,9 +315,7 @@ export default function Home() {
         }
         return (
           <button key={i} onClick={() => !resp && onResponder(opcion)} style={{ border: `1.5px solid ${borderColor}`, borderRadius: '10px', padding: '12px 16px', background: bg, color, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left', transition: 'all .15s', width: '100%', cursor: resp ? 'default' : 'pointer' }}>
-            <div style={{ width: '26px', height: '26px', borderRadius: '7px', background: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600, flexShrink: 0, color: '#888' }}>
-              {letras[i]}
-            </div>
+            <div style={{ width: '26px', height: '26px', borderRadius: '7px', background: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600, flexShrink: 0, color: '#888' }}>{letras[i]}</div>
             {opcion}
           </button>
         )
@@ -329,15 +341,11 @@ export default function Home() {
               <h1 style={{ fontSize: '20px', fontWeight: 600, color: '#0D1117', letterSpacing: '-0.3px' }}>Examen Final REBT</h1>
               <p style={{ fontSize: '13px', color: '#888', marginTop: '2px' }}>Pregunta {examenIndex + 1} de {examenPreguntas.length}</p>
             </div>
-            <button onClick={() => setModoExamen(false)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #EAEAEA', background: '#fff', fontSize: '13px', color: '#666', cursor: 'pointer' }}>
-              Salir
-            </button>
+            <button onClick={() => setModoExamen(false)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #EAEAEA', background: '#fff', fontSize: '13px', color: '#666', cursor: 'pointer' }}>Salir</button>
           </div>
-
           <div style={{ height: '6px', background: '#F0F0F0', borderRadius: '3px', marginBottom: '24px', overflow: 'hidden' }}>
             <div style={{ height: '100%', background: 'linear-gradient(90deg,#1A6FE8,#0D4FA8)', borderRadius: '3px', width: `${((examenIndex) / examenPreguntas.length) * 100}%`, transition: 'width 0.4s ease' }} />
           </div>
-
           <div style={cardStyle}>
             <div style={{ padding: '14px 20px', borderBottom: '0.5px solid rgba(0,0,0,0.06)', display: 'flex', gap: '6px' }}>
               {pregActual.instruccion_rebt && pregActual.instruccion_rebt !== 'N/A' && <span style={{ fontSize: '11px', fontWeight: 500, padding: '3px 9px', borderRadius: '5px', background: '#EEF5FF', color: '#1A6FE8' }}>{pregActual.instruccion_rebt}</span>}
@@ -350,9 +358,7 @@ export default function Home() {
               {examenRespuesta && (
                 <>
                   <div style={{ marginTop: '16px', padding: '14px 16px', borderRadius: '10px', border: `1px solid ${examenRespuesta === pregActual.respuesta_correcta ? '#9FE1CB' : '#F7C1C1'}`, background: examenRespuesta === pregActual.respuesta_correcta ? '#E8F8F2' : '#FEF0F0' }}>
-                    <p style={{ fontSize: '13px', fontWeight: 600, color: examenRespuesta === pregActual.respuesta_correcta ? '#085041' : '#501313', marginBottom: '4px' }}>
-                      {examenRespuesta === pregActual.respuesta_correcta ? '✓ Correcto' : '✗ Incorrecto'}
-                    </p>
+                    <p style={{ fontSize: '13px', fontWeight: 600, color: examenRespuesta === pregActual.respuesta_correcta ? '#085041' : '#501313', marginBottom: '4px' }}>{examenRespuesta === pregActual.respuesta_correcta ? '✓ Correcto' : '✗ Incorrecto'}</p>
                     <p style={{ fontSize: '12px', color: examenRespuesta === pregActual.respuesta_correcta ? '#0F6E56' : '#A32D2D', lineHeight: 1.6 }}>{pregActual.explicacion}</p>
                   </div>
                   <button onClick={siguientePreguntaExamen} style={btnPrimary}>
@@ -373,7 +379,6 @@ export default function Home() {
     const nota = pctFinal >= 90 ? 'Sobresaliente' : pctFinal >= 70 ? 'Aprobado' : 'Suspenso'
     const notaColor = pctFinal >= 90 ? '#1D9E75' : pctFinal >= 70 ? '#1A6FE8' : '#E24B4A'
     const notaBg = pctFinal >= 90 ? '#E8F8F2' : pctFinal >= 70 ? '#EEF5FF' : '#FEF0F0'
-
     return (
       <>
         <Navbar />
@@ -387,22 +392,14 @@ export default function Home() {
               <div style={{ fontSize: '14px', color: '#888' }}>{aciertos} correctas de {examenResultados.length} preguntas</div>
             </div>
             <div style={{ padding: '20px 24px' }}>
-              <button onClick={() => { setModoExamen(false); setExamenTerminado(false) }} style={btnPrimary}>
-                Volver a ejercicios
-              </button>
+              <button onClick={() => { setModoExamen(false); setExamenTerminado(false) }} style={btnPrimary}>Volver a ejercicios</button>
             </div>
           </div>
-
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#999', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>
-            Detalle pregunta por pregunta
-          </div>
-
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#999', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Detalle pregunta por pregunta</div>
           {examenResultados.map((r, i) => (
             <div key={i} style={{ ...cardStyle, marginBottom: '10px' }}>
               <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: r.correcto ? '#E8F8F2' : '#FEF0F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', flexShrink: 0 }}>
-                  {r.correcto ? '✓' : '✗'}
-                </div>
+                <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: r.correcto ? '#E8F8F2' : '#FEF0F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', flexShrink: 0 }}>{r.correcto ? '✓' : '✗'}</div>
                 <span style={{ fontSize: '13px', color: '#0D1117', fontWeight: 500, lineHeight: 1.4 }}>{r.pregunta}</span>
               </div>
               <div style={{ padding: '12px 16px', fontSize: '12px' }}>
@@ -421,7 +418,6 @@ export default function Home() {
     <>
       <Navbar />
       <main style={{ padding: '28px 24px', maxWidth: '960px', margin: '0 auto' }}>
-
         <div style={{ marginBottom: '20px' }}>
           <h1 style={{ fontSize: '20px', fontWeight: 600, color: '#0D1117', letterSpacing: '-0.3px', marginBottom: '3px' }}>Ejercicios</h1>
           <p style={{ fontSize: '13px', color: '#888' }}>Practica y mejora tu nivel como electricista profesional</p>
@@ -434,44 +430,27 @@ export default function Home() {
           </div>
         )}
 
-        {/* BLOQUE EXAMEN FINAL */}
         <div style={{
-          background: examenDesbloqueado ? '#fff' : '#fff',
-          borderRadius: '16px',
+          background: '#fff', borderRadius: '16px',
           border: examenDesbloqueado ? '2px solid #1A6FE8' : '0.5px solid rgba(0,0,0,0.06)',
           boxShadow: examenDesbloqueado ? '0 4px 20px rgba(26,111,232,0.15)' : '0 2px 8px rgba(0,0,0,0.05)',
-          padding: '24px',
-          marginBottom: '24px',
-          position: 'relative',
-          overflow: 'hidden'
+          padding: '24px', marginBottom: '24px', position: 'relative', overflow: 'hidden'
         }}>
-          {!examenDesbloqueado && (
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(135deg,rgba(26,111,232,0.02),rgba(13,79,168,0.04))', pointerEvents: 'none' }} />
-          )}
-
+          {!examenDesbloqueado && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(135deg,rgba(26,111,232,0.02),rgba(13,79,168,0.04))', pointerEvents: 'none' }} />}
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px' }}>
-            <div style={{
-              width: '52px', height: '52px', borderRadius: '14px', flexShrink: 0,
-              background: examenDesbloqueado ? 'linear-gradient(135deg,#1A6FE8,#0D4FA8)' : 'linear-gradient(135deg,#e0e0e0,#c8c8c8)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px',
-              boxShadow: examenDesbloqueado ? '0 4px 12px rgba(26,111,232,0.35)' : 'none'
-            }}>
+            <div style={{ width: '52px', height: '52px', borderRadius: '14px', flexShrink: 0, background: examenDesbloqueado ? 'linear-gradient(135deg,#1A6FE8,#0D4FA8)' : 'linear-gradient(135deg,#e0e0e0,#c8c8c8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', boxShadow: examenDesbloqueado ? '0 4px 12px rgba(26,111,232,0.35)' : 'none' }}>
               {examenDesbloqueado ? '🎯' : '🔒'}
             </div>
             <div>
               <div style={{ fontSize: '18px', fontWeight: 600, color: '#0D1117', letterSpacing: '-0.3px', marginBottom: '3px' }}>Examen Final REBT</div>
-              <div style={{ fontSize: '13px', color: '#888' }}>
-                {examenDesbloqueado ? '¡Estás listo! Todos los requisitos completados' : 'Completa los requisitos para desbloquear el examen'}
-              </div>
+              <div style={{ fontSize: '13px', color: '#888' }}>{examenDesbloqueado ? '¡Estás listo! Todos los requisitos completados' : 'Completa los requisitos para desbloquear el examen'}</div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
             {requisitos.map((r, i) => (
               <div key={i} style={{ background: '#F8F9FA', borderRadius: '10px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>
-                  {r.icono}
-                </div>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>{r.icono}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '11px', color: '#999', marginBottom: '2px' }}>{r.label}</div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: r.ok ? r.color : '#666' }}>
@@ -520,7 +499,7 @@ export default function Home() {
                 </div>
                 <BotonesDificultad value={examenConfig.dificultad} onChange={v => setExamenConfig(prev => ({ ...prev, dificultad: v }))} />
               </div>
-              <button onClick={iniciarExamen} disabled={cargandoExamen} style={{ ...btnPrimary, marginTop: 0, background: 'linear-gradient(135deg,#1A6FE8,#0D4FA8)', boxShadow: '0 4px 16px rgba(26,111,232,0.4)', padding: '14px 20px', fontSize: '14px', opacity: cargandoExamen ? 0.7 : 1 }}>
+              <button onClick={iniciarExamen} disabled={cargandoExamen} style={{ ...btnPrimary, marginTop: 0, padding: '14px 20px', fontSize: '14px', opacity: cargandoExamen ? 0.7 : 1 }}>
                 {cargandoExamen ? 'Preparando examen...' : '🎯 Comenzar Examen Final'}
               </button>
             </div>
@@ -533,15 +512,7 @@ export default function Home() {
 
         <div style={{ display: 'flex', gap: '6px', marginBottom: '24px', background: '#fff', padding: '4px', borderRadius: '10px', border: '0.5px solid rgba(0,0,0,0.06)', width: 'fit-content', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           {categorias.map(c => (
-            <button key={c.id} onClick={() => { setCategoria(c.id); setEjercicio(null); setRespuesta(null); setResultado(null); setError(null) }} style={{
-              padding: '7px 16px', borderRadius: '7px', border: 'none',
-              background: categoria === c.id ? '#1A6FE8' : 'transparent',
-              color: categoria === c.id ? '#fff' : '#666',
-              fontSize: '13px', fontWeight: categoria === c.id ? 500 : 400,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-              boxShadow: categoria === c.id ? '0 2px 8px rgba(26,111,232,0.3)' : 'none',
-              transition: 'all .15s'
-            }}>
+            <button key={c.id} onClick={() => { setCategoria(c.id); setEjercicio(null); setRespuesta(null); setResultado(null); setError(null) }} style={{ padding: '7px 16px', borderRadius: '7px', border: 'none', background: categoria === c.id ? '#1A6FE8' : 'transparent', color: categoria === c.id ? '#fff' : '#666', fontSize: '13px', fontWeight: categoria === c.id ? 500 : 400, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: categoria === c.id ? '0 2px 8px rgba(26,111,232,0.3)' : 'none', transition: 'all .15s' }}>
               {c.icono} {c.label}
             </button>
           ))}
@@ -608,19 +579,13 @@ export default function Home() {
                     </>
                   )}
                   {error && (
-                    <div style={{ padding: '10px 14px', background: '#FEF0F0', border: '1px solid #F7C1C1', borderRadius: '8px', fontSize: '12px', color: '#A32D2D' }}>
-                      {error}
-                    </div>
+                    <div style={{ padding: '10px 14px', background: '#FEF0F0', border: '1px solid #F7C1C1', borderRadius: '8px', fontSize: '12px', color: '#A32D2D' }}>{error}</div>
                   )}
-                  <button onClick={generarEjercicio} style={{ ...btnPrimary, marginTop: 0 }}>
-                    Generar ejercicio
-                  </button>
+                  <button onClick={generarEjercicio} style={{ ...btnPrimary, marginTop: 0 }}>Generar ejercicio</button>
                 </div>
               )}
               {cargando && (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: '#aaa', fontSize: '14px' }}>
-                  Generando ejercicio...
-                </div>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#aaa', fontSize: '14px' }}>Generando ejercicio...</div>
               )}
               {ejercicio && !cargando && (
                 <>
@@ -628,9 +593,7 @@ export default function Home() {
                   <OpcionesEjercicio ej={ejercicio} resp={respuesta} onResponder={responder} />
                   {respuesta && (
                     <div style={{ marginTop: '16px', padding: '14px 16px', borderRadius: '10px', border: `1px solid ${resultado ? '#9FE1CB' : '#F7C1C1'}`, background: resultado ? '#E8F8F2' : '#FEF0F0' }}>
-                      <p style={{ fontSize: '13px', fontWeight: 600, color: resultado ? '#085041' : '#501313', marginBottom: '4px' }}>
-                        {resultado ? '✓ Correcto' : '✗ Incorrecto'}
-                      </p>
+                      <p style={{ fontSize: '13px', fontWeight: 600, color: resultado ? '#085041' : '#501313', marginBottom: '4px' }}>{resultado ? '✓ Correcto' : '✗ Incorrecto'}</p>
                       <p style={{ fontSize: '12px', color: resultado ? '#0F6E56' : '#A32D2D', lineHeight: 1.6 }}>{ejercicio.explicacion}</p>
                     </div>
                   )}
@@ -657,9 +620,7 @@ export default function Home() {
                           <BotonesDificultad value={dificultad} onChange={setDificultad} />
                         </>
                       )}
-                      <button onClick={generarEjercicio} style={{ ...btnPrimary, marginTop: 0 }}>
-                        Siguiente ejercicio
-                      </button>
+                      <button onClick={generarEjercicio} style={{ ...btnPrimary, marginTop: 0 }}>Siguiente ejercicio</button>
                     </div>
                   )}
                 </>
@@ -672,17 +633,13 @@ export default function Home() {
             <div style={{ background: '#fff', borderRadius: '14px', border: '0.5px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', padding: '16px' }}>
               <div style={{ fontSize: '12px', color: '#555', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
                 <span>Nivel general</span>
-                <span style={{ color: '#1A6FE8', fontWeight: 600 }}>
-                  {stats.total > 0 ? `${Math.round((stats.aciertos / stats.total) * 100)}%` : '—'}
-                </span>
+                <span style={{ color: '#1A6FE8', fontWeight: 600 }}>{stats.total > 0 ? `${Math.round((stats.aciertos / stats.total) * 100)}%` : '—'}</span>
               </div>
               <div style={{ height: '6px', background: '#F0F0F0', borderRadius: '3px', marginBottom: '16px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', background: 'linear-gradient(90deg,#1A6FE8,#0D4FA8)', borderRadius: '3px', width: stats.total > 0 ? `${Math.round((stats.aciertos / stats.total) * 100)}%` : '0%', transition: 'width 0.4s ease' }} />
               </div>
               {Object.keys(progreso).length === 0 ? (
-                <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', padding: '12px 0' }}>
-                  Responde ejercicios para ver tu progreso
-                </p>
+                <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', padding: '12px 0' }}>Responde ejercicios para ver tu progreso</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {Object.entries(progreso).map(([clave, data]) => {
