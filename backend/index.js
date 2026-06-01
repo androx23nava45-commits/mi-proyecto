@@ -123,6 +123,66 @@ Responde ÚNICAMENTE con un objeto JSON con esta estructura exacta, sin texto ex
   }
 })
 
+app.post('/examen/generar', async (req, res) => {
+  const { num_preguntas, categorias, dificultad } = req.body
+  const total = num_preguntas || 10
+  const cats = categorias || ['test', 'matematicas']
+  const preguntas = []
+
+  const porCategoria = Math.ceil(total / cats.length)
+
+  for (const cat of cats) {
+    for (let i = 0; i < porCategoria && preguntas.length < total; i++) {
+      try {
+        let prompt = ''
+        if (cat === 'test') {
+          const itc = `ITC-BT-${String(Math.floor(Math.random() * 52) + 1).padStart(2, '0')}`
+          prompt = `Eres un experto en el REBT de España. Genera una pregunta de examen sobre ${itc} con dificultad ${dificultad || 'intermedio'}.
+Responde ÚNICAMENTE con JSON:
+{
+  "tipo": "test",
+  "categoria": "test",
+  "pregunta": "texto",
+  "opciones": ["A","B","C","D"],
+  "respuesta_correcta": "opción correcta",
+  "explicacion": "explicación",
+  "instruccion_rebt": "${itc}",
+  "dificultad": "${dificultad || 'intermedio'}"
+}`
+        } else if (cat === 'matematicas') {
+          const tipos = ['ohm', 'joule', 'potencia', 'caida', 'seccion']
+          const tipo = tipos[Math.floor(Math.random() * tipos.length)]
+          prompt = `Eres un profesor experto en electricidad. Genera un problema de cálculo eléctrico de tipo ${tipo} con dificultad ${dificultad || 'intermedio'}.
+Responde ÚNICAMENTE con JSON:
+{
+  "tipo": "matematicas",
+  "categoria": "matematicas",
+  "subtipo": "${tipo}",
+  "pregunta": "enunciado con datos numéricos",
+  "opciones": ["A","B","C","D"],
+  "respuesta_correcta": "opción correcta",
+  "explicacion": "resolución paso a paso",
+  "instruccion_rebt": "N/A",
+  "dificultad": "${dificultad || 'intermedio'}"
+}`
+        }
+
+        const message = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }]
+        })
+        const pregunta = parsearJSON(message.content[0].text)
+        preguntas.push(pregunta)
+      } catch (err) {
+        console.error('Error generando pregunta:', err.message)
+      }
+    }
+  }
+
+  res.json({ preguntas, total: preguntas.length })
+})
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Servidor TECNIO corriendo en puerto ${PORT}`)
