@@ -1,4 +1,17 @@
+'use client'
+import { usePathname } from 'next/navigation'
+import Link from 'next/link'
+
 export default function Navbar() {
+  const pathname = usePathname()
+
+  const links = [
+    { href: '/', label: 'Ejercicios' },
+    { href: '/material', label: 'Material' },
+    { href: '/reservas', label: 'Reservas' },
+    { href: '/avance', label: 'Mi avance' },
+  ]
+
   return (
     <nav style={{
       background: 'rgba(255,255,255,0.85)',
@@ -14,7 +27,7 @@ export default function Navbar() {
       top: 0,
       zIndex: 100
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' }}>
         <div style={{
           width: '30px', height: '30px',
           background: 'linear-gradient(135deg,#1A6FE8,#0D4FA8)',
@@ -30,21 +43,23 @@ export default function Navbar() {
           <div style={{ fontSize: '17px', fontWeight: 600, color: '#0D1117', letterSpacing: '-0.5px' }}>TECNIO</div>
           <div style={{ fontSize: '10px', color: '#999', marginTop: '-2px', letterSpacing: '0.02em' }}>by thePower</div>
         </div>
-      </div>
+      </Link>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        {['Ejercicios', 'Material', 'Reservas', 'Mi avance'].map((item, i) => (
-          <div key={i} style={{
+        {links.map(link => (
+          <Link key={link.href} href={link.href} style={{
             fontSize: '13px',
-            color: i === 0 ? '#1A6FE8' : '#666',
-            background: i === 0 ? '#EEF5FF' : 'transparent',
+            color: pathname === link.href ? '#1A6FE8' : '#666',
+            background: pathname === link.href ? '#EEF5FF' : 'transparent',
             padding: '6px 12px',
             borderRadius: '7px',
-            fontWeight: i === 0 ? 500 : 400,
-            cursor: 'pointer'
+            fontWeight: pathname === link.href ? 500 : 400,
+            cursor: 'pointer',
+            textDecoration: 'none',
+            transition: 'all .15s'
           }}>
-            {item}
-          </div>
+            {link.label}
+          </Link>
         ))}
         <div style={{
           width: '32px', height: '32px',

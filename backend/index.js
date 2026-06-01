@@ -128,7 +128,6 @@ app.post('/examen/generar', async (req, res) => {
   const total = num_preguntas || 10
   const cats = categorias || ['test', 'matematicas']
   const preguntas = []
-
   const porCategoria = Math.ceil(total / cats.length)
 
   for (const cat of cats) {
@@ -166,7 +165,6 @@ Responde ÚNICAMENTE con JSON:
   "dificultad": "${dificultad || 'intermedio'}"
 }`
         }
-
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 1024,
@@ -179,8 +177,70 @@ Responde ÚNICAMENTE con JSON:
       }
     }
   }
-
   res.json({ preguntas, total: preguntas.length })
+})
+
+app.get('/sesiones', async (req, res) => {
+  const { fecha } = req.query
+  let query = supabase.from('sesiones').select('*').order('fecha').order('hora')
+  if (fecha) query = query.eq('fecha', fecha)
+  const { data, error } = await query
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data)
+})
+
+app.post('/reservas', async (req, res) => {
+  const { sesion_id, alumno_nombre, alumno_email } = req.body
+  if (!sesion_id || !alumno_nombre || !alumno_email) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios' })
+  }
+
+  const { data: sesion, error: sesionError } = await supabase
+    .from('sesiones')
+    .select('*')
+    .eq('id', sesion_id)
+    .single()
+
+  if (sesionError || !sesion) return res.status(404).json({ error: 'Sesión no encontrada' })
+  if (sesion.plazas_disponibles <= 0) return res.status(400).json({ error: 'No quedan plazas disponibles' })
+
+  const { data: reserva, error: reservaError } = await supabase
+    .from('reservas')
+    .insert([{ sesion_id, alumno_nombre, alumno_email, estado: 'confirmada' }])
+    .select()
+    .single()
+
+  if (reservaError) return res.status(500).json({ error: reservaError.message })
+
+  await supabase
+    .from('sesiones')
+    .update({ plazas_disponibles: sesion.plazas_disponibles - 1 })
+    .eq('id', sesion_id)
+
+  res.json({ reserva, mensaje: 'Reserva confirmada correctamente' })
+})
+
+app.get('/reservas', async (req, res) => {
+  const { email } = req.query
+  if (!email) return res.status(400).json({ error: 'Email requerido' })
+  const { data, error } = await supabase
+    .from('reservas')
+    .select('*, sesiones(*)')
+    .eq('alumno_email', email)
+    .order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data)
+})
+
+app.delete('/reservas/:id', async (req, res) => {
+  const { id } = req.params
+  const { data: reserva } = await supabase.from('reservas').select('*, sesiones(*)').eq('id', id).single()
+  if (reserva) {
+    await supabase.from('sesiones').update({ plazas_disponibles: reserva.sesiones.plazas_disponibles + 1 }).eq('id', reserva.sesion_id)
+  }
+  const { error } = await supabase.from('reservas').delete().eq('id', id)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ mensaje: 'Reserva cancelada' })
 })
 
 const PORT = process.env.PORT || 3000
