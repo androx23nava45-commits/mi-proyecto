@@ -5,7 +5,9 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:3000/:path*'
+        destination: process.env.NODE_ENV === 'production'
+          ? 'https://mi-proyecto-production-3a61.up.railway.app/:path*'
+          : 'http://localhost:3000/:path*'
       }
     ]
   }
