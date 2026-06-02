@@ -1,0 +1,7 @@
+{
+  "name": "tecnio",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd frontend && npm start"
+  }
+}
